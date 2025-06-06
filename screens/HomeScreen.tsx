@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, Platform, SafeAreaView, Dimensions, FlatList, TouchableOpacity, Button } from 'react-native';
 import MapView from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
-import { db } from '../services/firebase';
+import { db } from '../config/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');

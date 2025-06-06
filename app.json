@@ -16,7 +16,8 @@
       "supportsTablet": true,
       "config": {
         "googleMapsApiKey": "AIzaSyBv4wmmv6zyT0KpJxWpbErp-e5wioke2PE"
-      }
+      },
+      "bundleIdentifier": "com.anonymous.saferides-demo-driver"
     },
     "android": {
       "adaptiveIcon": {
