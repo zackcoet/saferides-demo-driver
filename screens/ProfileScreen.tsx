@@ -5,6 +5,8 @@ import { Ionicons, MaterialIcons, FontAwesome, Entypo, FontAwesome5 } from '@exp
 import { useAuth } from '../services/AuthContext';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../config/firebase';
 import { Picker } from '@react-native-picker/picker';
 
 const PRIMARY_BLUE = '#174EA6';
@@ -17,6 +19,10 @@ interface DriverData {
     fullName: string;
     email: string;
     gender: string;
+    phone: string;
+    birthday: string;
+    year: string;
+    major: string;
     vehicle: {
         make: string;
         model: string;
@@ -110,69 +116,91 @@ const ProfileScreen = () => {
   const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      if (!user) return;
+    const unsub = onAuthStateChanged(auth, currentUser => {
+      if (!currentUser) return;
 
-      try {
-        const driverDoc = await getDoc(doc(db, 'drivers', user.uid));
-        if (driverDoc.exists()) {
-          const data = driverDoc.data() as DriverData;
-          
-          // Split full name into first and last name
-          const nameParts = data.fullName.split(' ');
-          setFirstName(nameParts[0] || '');
-          setLastName(nameParts.slice(1).join(' ') || '');
-          
-          setEmail(data.email);
-          setGender(data.gender);
-          setVehicleMake(data.vehicle.make);
-          setVehicleModel(data.vehicle.model);
-          setVehicleYear(data.vehicle.year);
-          setLicensePlate(data.vehicle.plate);
-          setVehicleColor(data.vehicle.color);
+      const fetchUserData = async () => {
+        try {
+          const driverDoc = await getDoc(doc(db, 'drivers', currentUser.uid));
+          if (driverDoc.exists()) {
+            const data = driverDoc.data() as DriverData;
+            
+            // Split full name into first and last name
+            const nameParts = data.fullName.split(' ');
+            setFirstName(nameParts[0] || '');
+            setLastName(nameParts.slice(1).join(' ') || '');
+            
+            setEmail(data.email);
+            setGender(data.gender);
+            setPhone(data.phone || '');
+            setBirthday(data.birthday || '');
+            setYear(data.year || 'Freshman');
+            setMajor(data.major || '');
+            setVehicleMake(data.vehicle.make);
+            setVehicleModel(data.vehicle.model);
+            setVehicleYear(data.vehicle.year);
+            setLicensePlate(data.vehicle.plate);
+            setVehicleColor(data.vehicle.color);
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+          Alert.alert('Error', 'Failed to load profile data. Please try again.');
+        } finally {
+          setIsLoading(false);
         }
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-        Alert.alert('Error', 'Failed to load profile data. Please try again.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+      };
 
-    fetchUserData();
-  }, [user]);
+      fetchUserData();
+    });
+
+    return () => unsub();
+  }, []);
 
   const handleSave = async () => {
-    if (!user) return;
-
     setIsSaving(true);
-    try {
-      const fullName = `${firstName} ${lastName}`.trim();
-      if (!fullName) {
-        Alert.alert('Error', 'Please enter your full name');
+    
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        Alert.alert('Error', 'You must be logged in to save changes');
+        setIsSaving(false);
         return;
       }
 
-      const driverRef = doc(db, 'drivers', user.uid);
-      await updateDoc(driverRef, {
-        fullName,
-        gender,
-        vehicle: {
-          make: vehicleMake,
-          model: vehicleModel,
-          year: vehicleYear,
-          plate: licensePlate,
-          color: vehicleColor
+      try {
+        const fullName = `${firstName} ${lastName}`.trim();
+        if (!fullName) {
+          Alert.alert('Error', 'Please enter your full name');
+          setIsSaving(false);
+          return;
         }
-      });
 
-      Alert.alert('Success', 'Profile updated successfully');
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      Alert.alert('Error', 'Failed to update profile. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
+        const driverRef = doc(db, 'drivers', currentUser.uid);
+        await updateDoc(driverRef, {
+          fullName,
+          gender,
+          phone,
+          birthday,
+          year,
+          major,
+          vehicle: {
+            make: vehicleMake,
+            model: vehicleModel,
+            year: vehicleYear,
+            plate: licensePlate,
+            color: vehicleColor
+          }
+        });
+
+        Alert.alert('Success', 'Profile updated successfully');
+      } catch (error) {
+        console.error('Error updating profile:', error);
+        Alert.alert('Error', 'Failed to update profile. Please try again.');
+      } finally {
+        setIsSaving(false);
+      }
+    });
+
+    return () => unsub();
   };
 
   // Placeholder functions
