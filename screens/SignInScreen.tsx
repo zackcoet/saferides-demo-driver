@@ -8,11 +8,17 @@ import {
     Alert,
 } from 'react-native';
 import { useAuth } from '../services/AuthContext';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { AuthStackParamList } from '../navigation/AuthNavigator';
+
+type SignInScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'SignIn'>;
 
 export default function SignInScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const { signIn } = useAuth();
+    const navigation = useNavigation<SignInScreenNavigationProp>();
 
     const handleSignIn = async () => {
         try {
@@ -43,6 +49,12 @@ export default function SignInScreen() {
             <TouchableOpacity style={styles.button} onPress={handleSignIn}>
                 <Text style={styles.buttonText}>Sign In</Text>
             </TouchableOpacity>
+            <TouchableOpacity 
+                style={styles.signUpButton} 
+                onPress={() => navigation.navigate('SignUp')}
+            >
+                <Text style={styles.signUpButtonText}>Don't have an account? Sign Up</Text>
+            </TouchableOpacity>
         </View>
     );
 }
@@ -50,33 +62,44 @@ export default function SignInScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        justifyContent: 'center',
         padding: 20,
+        justifyContent: 'center',
         backgroundColor: '#fff',
     },
     title: {
-        fontSize: 24,
+        fontSize: 32,
         fontWeight: 'bold',
-        marginBottom: 20,
+        marginBottom: 30,
         textAlign: 'center',
+        color: '#174EA6',
     },
     input: {
-        borderWidth: 1,
-        borderColor: '#ddd',
-        padding: 15,
-        borderRadius: 8,
-        marginBottom: 15,
+        backgroundColor: '#f6f6f6',
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
         fontSize: 16,
+        marginBottom: 12,
+        color: '#222',
     },
     button: {
-        backgroundColor: '#007AFF',
-        padding: 15,
-        borderRadius: 8,
+        backgroundColor: '#174EA6',
+        borderRadius: 12,
+        paddingVertical: 14,
         alignItems: 'center',
+        marginTop: 8,
     },
     buttonText: {
         color: '#fff',
-        fontSize: 16,
         fontWeight: 'bold',
+        fontSize: 16,
+    },
+    signUpButton: {
+        marginTop: 16,
+        alignItems: 'center',
+    },
+    signUpButtonText: {
+        color: '#174EA6',
+        fontSize: 16,
     },
 }); 

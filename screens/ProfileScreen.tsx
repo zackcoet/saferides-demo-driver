@@ -1,12 +1,30 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Image } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Image, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons, FontAwesome, Entypo, FontAwesome5 } from '@expo/vector-icons';
+import { useAuth } from '../services/AuthContext';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { Picker } from '@react-native-picker/picker';
 
 const PRIMARY_BLUE = '#174EA6';
 const RED = '#D32F2F';
 const GRAY = '#888';
 const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior'];
+const GENDERS = ['Male', 'Female', 'Prefer not to say'];
+
+interface DriverData {
+    fullName: string;
+    email: string;
+    gender: string;
+    vehicle: {
+        make: string;
+        model: string;
+        year: string;
+        plate: string;
+        color: string;
+    };
+}
 
 const Accordion = ({ title, icon, expanded, onPress, children }: any) => (
   <View style={styles.accordionContainer}>
@@ -53,22 +71,31 @@ We may update these Terms at any time. Continued use of the Service after change
 For questions or concerns, email us at saferideshelp@gmail.com.`;
 
 const ProfileScreen = () => {
+  const { user, logout } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
   // Profile state
-  const [firstName, setFirstName] = useState('John');
-  const [lastName, setLastName] = useState('Doe');
-  const [email, setEmail] = useState('john.doe@email.com');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [birthday, setBirthday] = useState('');
   const [major, setMajor] = useState('');
   const [year, setYear] = useState('Freshman');
   const [profilePic, setProfilePic] = useState<string | null>(null);
+  const [gender, setGender] = useState('Male');
+  const [vehicleMake, setVehicleMake] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
+  const [vehicleYear, setVehicleYear] = useState('');
+  const [licensePlate, setLicensePlate] = useState('');
+  const [vehicleColor, setVehicleColor] = useState('');
 
   // Dropdowns
   const [editOpen, setEditOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [problemOpen, setProblemOpen] = useState(false);
-  const [discountOpen, setDiscountOpen] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -79,20 +106,97 @@ const ProfileScreen = () => {
   const [locationAccess, setLocationAccess] = useState(false);
   const [analytics, setAnalytics] = useState(true);
 
-  // Discount
-  const [discountCode, setDiscountCode] = useState('');
-
   // Feedback
   const [feedback, setFeedback] = useState('');
 
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (!user) return;
+
+      try {
+        const driverDoc = await getDoc(doc(db, 'drivers', user.uid));
+        if (driverDoc.exists()) {
+          const data = driverDoc.data() as DriverData;
+          
+          // Split full name into first and last name
+          const nameParts = data.fullName.split(' ');
+          setFirstName(nameParts[0] || '');
+          setLastName(nameParts.slice(1).join(' ') || '');
+          
+          setEmail(data.email);
+          setGender(data.gender);
+          setVehicleMake(data.vehicle.make);
+          setVehicleModel(data.vehicle.model);
+          setVehicleYear(data.vehicle.year);
+          setLicensePlate(data.vehicle.plate);
+          setVehicleColor(data.vehicle.color);
+        }
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+        Alert.alert('Error', 'Failed to load profile data. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!user) return;
+
+    setIsSaving(true);
+    try {
+      const fullName = `${firstName} ${lastName}`.trim();
+      if (!fullName) {
+        Alert.alert('Error', 'Please enter your full name');
+        return;
+      }
+
+      const driverRef = doc(db, 'drivers', user.uid);
+      await updateDoc(driverRef, {
+        fullName,
+        gender,
+        vehicle: {
+          make: vehicleMake,
+          model: vehicleModel,
+          year: vehicleYear,
+          plate: licensePlate,
+          color: vehicleColor
+        }
+      });
+
+      Alert.alert('Success', 'Profile updated successfully');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Placeholder functions
-  const handleSave = () => {};
-  const handleApplyCode = () => {};
   const handleSubmitFeedback = () => {};
-  const handleLogout = () => {};
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
   const handleUploadPhoto = () => {};
 
   const fullName = `${firstName || 'John'} ${lastName || 'Doe'}`;
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={PRIMARY_BLUE} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -138,14 +242,38 @@ const ProfileScreen = () => {
             />
           </View>
           <TextInput
-            style={styles.input}
+            style={[styles.input, styles.readOnlyInput]}
             placeholder="School Email*"
             value={email}
-            onChangeText={setEmail}
+            editable={false}
             placeholderTextColor={GRAY}
-            keyboardType="email-address"
-            autoCapitalize="none"
           />
+          <View style={styles.genderContainer}>
+            <TouchableOpacity
+              style={[
+                styles.genderButton,
+                gender === 'Male' && styles.genderButtonSelected
+              ]}
+              onPress={() => setGender('Male')}
+            >
+              <Text style={[
+                styles.genderButtonText,
+                gender === 'Male' && styles.genderButtonTextSelected
+              ]}>Male</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.genderButton,
+                gender === 'Female' && styles.genderButtonSelected
+              ]}
+              onPress={() => setGender('Female')}
+            >
+              <Text style={[
+                styles.genderButtonText,
+                gender === 'Female' && styles.genderButtonTextSelected
+              ]}>Female</Text>
+            </TouchableOpacity>
+          </View>
           <TextInput
             style={styles.input}
             placeholder="Phone Number"
@@ -179,8 +307,52 @@ const ProfileScreen = () => {
             onChangeText={setMajor}
             placeholderTextColor={GRAY}
           />
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-            <Text style={styles.saveBtnText}>Save Changes</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Vehicle Make*"
+            value={vehicleMake}
+            onChangeText={setVehicleMake}
+            placeholderTextColor={GRAY}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Vehicle Model*"
+            value={vehicleModel}
+            onChangeText={setVehicleModel}
+            placeholderTextColor={GRAY}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Vehicle Year*"
+            value={vehicleYear}
+            onChangeText={setVehicleYear}
+            keyboardType="numeric"
+            placeholderTextColor={GRAY}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="License Plate*"
+            value={licensePlate}
+            onChangeText={(text) => setLicensePlate(text.toUpperCase())}
+            placeholderTextColor={GRAY}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Vehicle Color*"
+            value={vehicleColor}
+            onChangeText={setVehicleColor}
+            placeholderTextColor={GRAY}
+          />
+          <TouchableOpacity 
+            style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]} 
+            onPress={handleSave}
+            disabled={isSaving}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveBtnText}>Save Changes</Text>
+            )}
           </TouchableOpacity>
         </Accordion>
 
@@ -223,26 +395,6 @@ const ProfileScreen = () => {
           <TouchableOpacity style={styles.linkBtn}><Text style={styles.linkBtnText}>Check our FAQ →</Text></TouchableOpacity>
           <Text style={styles.infoText}>Call Support: <Text style={styles.boldText}>332 733 6922</Text></Text>
           <Text style={styles.infoText}>Email: <Text style={styles.boldText}>support@saferides.com</Text></Text>
-        </Accordion>
-
-        <Accordion
-          title="Discount code"
-          icon={<FontAwesome5 name="gift" size={20} color={PRIMARY_BLUE} style={{ marginRight: 12 }} />}
-          expanded={discountOpen}
-          onPress={() => setDiscountOpen((v) => !v)}
-        >
-          <View style={styles.discountRow}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginRight: 8 }]}
-              placeholder="Enter discount code"
-              value={discountCode}
-              onChangeText={setDiscountCode}
-              placeholderTextColor={GRAY}
-            />
-            <TouchableOpacity style={styles.applyBtn} onPress={handleApplyCode}>
-              <Text style={styles.applyBtnText}>Apply Code</Text>
-            </TouchableOpacity>
-          </View>
         </Accordion>
 
         <Accordion
@@ -317,7 +469,7 @@ const ProfileScreen = () => {
               <Text style={styles.logoutBtnText}>Log out</Text>
             </View>
           </TouchableOpacity>
-    </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -494,22 +646,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#222',
   },
-  discountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  applyBtn: {
-    backgroundColor: PRIMARY_BLUE,
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  applyBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 15,
-  },
   privacyRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -538,5 +674,50 @@ const styles = StyleSheet.create({
     color: RED,
     fontWeight: 'bold',
     fontSize: 18,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  readOnlyInput: {
+    backgroundColor: '#f0f0f0',
+    color: '#666',
+  },
+  pickerContainer: {
+    backgroundColor: '#f6f6f6',
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  picker: {
+    height: 50,
+    width: '100%',
+  },
+  genderContainer: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    gap: 8,
+  },
+  genderButton: {
+    flex: 1,
+    backgroundColor: '#f6f6f6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  genderButtonSelected: {
+    backgroundColor: PRIMARY_BLUE,
+  },
+  genderButtonText: {
+    fontSize: 16,
+    color: '#222',
+    fontWeight: '500',
+  },
+  genderButtonTextSelected: {
+    color: '#fff',
+  },
+  saveBtnDisabled: {
+    opacity: 0.7,
   },
 });
