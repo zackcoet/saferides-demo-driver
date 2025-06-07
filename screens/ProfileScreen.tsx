@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons, FontAwesome, Entypo, FontAwesome5 } from '@expo/vector-icons';
 import { useAuth } from '../services/AuthContext';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
@@ -106,7 +106,7 @@ const ProfileScreen = () => {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
-  const [trustedOpen, setTrustedOpen] = useState(false);
+  const [privacyPolicyOpen, setPrivacyPolicyOpen] = useState(false);
 
   // Toggles
   const [locationAccess, setLocationAccess] = useState(false);
@@ -114,6 +114,7 @@ const ProfileScreen = () => {
 
   // Feedback
   const [feedback, setFeedback] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, currentUser => {
@@ -203,8 +204,43 @@ const ProfileScreen = () => {
     return () => unsub();
   };
 
+  const handleSubmitFeedback = async () => {
+    if (!feedback.trim()) {
+      Alert.alert('Error', 'Please enter your feedback before submitting.');
+      return;
+    }
+
+    setIsSubmittingFeedback(true);
+
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        Alert.alert('Error', 'You must be logged in to submit feedback');
+        setIsSubmittingFeedback(false);
+        return;
+      }
+
+      try {
+        await addDoc(collection(db, 'feedback'), {
+          userId: currentUser.uid,
+          email: currentUser.email,
+          message: feedback.trim(),
+          timestamp: serverTimestamp()
+        });
+
+        Alert.alert('Success', 'Thanks for your feedback!');
+        setFeedback(''); // Clear the input
+      } catch (error) {
+        console.error('Error submitting feedback:', error);
+        Alert.alert('Error', 'Failed to submit feedback. Please try again.');
+      } finally {
+        setIsSubmittingFeedback(false);
+      }
+    });
+
+    return () => unsub();
+  };
+
   // Placeholder functions
-  const handleSubmitFeedback = () => {};
   const handleLogout = async () => {
     try {
       await logout();
@@ -280,9 +316,10 @@ const ProfileScreen = () => {
             <TouchableOpacity
               style={[
                 styles.genderButton,
-                gender === 'Male' && styles.genderButtonSelected
+                gender === 'Male' && styles.genderButtonSelected,
+                styles.genderButtonDisabled
               ]}
-              onPress={() => setGender('Male')}
+              disabled={true}
             >
               <Text style={[
                 styles.genderButtonText,
@@ -292,9 +329,10 @@ const ProfileScreen = () => {
             <TouchableOpacity
               style={[
                 styles.genderButton,
-                gender === 'Female' && styles.genderButtonSelected
+                gender === 'Female' && styles.genderButtonSelected,
+                styles.genderButtonDisabled
               ]}
-              onPress={() => setGender('Female')}
+              disabled={true}
             >
               <Text style={[
                 styles.genderButtonText,
@@ -302,6 +340,7 @@ const ProfileScreen = () => {
               ]}>Female</Text>
             </TouchableOpacity>
           </View>
+          <Text style={styles.disabledNote}>Gender cannot be changed after account creation</Text>
           <TextInput
             style={styles.input}
             placeholder="Phone Number"
@@ -443,21 +482,104 @@ const ProfileScreen = () => {
         </Accordion>
 
         <Accordion
+          title="Privacy Policy"
+          icon={<FontAwesome name="shield" size={22} color={PRIMARY_BLUE} style={{ marginRight: 12 }} />}
+          expanded={privacyPolicyOpen}
+          onPress={() => setPrivacyPolicyOpen((v) => !v)}
+        >
+          <ScrollView style={styles.policyScrollView}>
+            <Text style={styles.policyTitle}>SafeRides™ Driver Privacy Policy</Text>
+            <Text style={styles.policyDate}>Last updated: 7 June 2025</Text>
+            
+            <Text style={styles.policyText}>
+              At SafeRides™, your privacy matters. This Privacy Policy outlines how we collect, use, store, and protect your personal information as a driver using the SafeRides™ platform.
+            </Text>
+
+            <Text style={styles.policyHeading}>1. Information We Collect</Text>
+            <Text style={styles.policyText}>
+              When you sign up and operate as a driver on SafeRides™, we may collect:
+            </Text>
+            <Text style={styles.policyText}>
+              Personal Information: Name, phone number, email address, university name, profile photo, and gender.{'\n\n'}
+              Vehicle Information: Make, model, color, license plate, and insurance details.{'\n\n'}
+              Identification Documents: Driver's license, student ID, and any other documents needed to verify eligibility.{'\n\n'}
+              Location Data: Real-time GPS location while online or completing rides.{'\n\n'}
+              Ride Data: Trip history, earnings, completed rides, ratings, and feedback.{'\n\n'}
+              Device Data: Device type, OS, crash logs, and app usage data.
+            </Text>
+
+            <Text style={styles.policyHeading}>2. How We Use Your Information</Text>
+            <Text style={styles.policyText}>
+              We use your data to:{'\n'}
+              • Verify your eligibility to drive on the platform.{'\n'}
+              • Match you with nearby ride requests based on your selected preferences.{'\n'}
+              • Provide customer support and communicate important updates.{'\n'}
+              • Monitor and improve driver safety and app functionality.{'\n'}
+              • Comply with legal obligations and enforce platform rules.
+            </Text>
+
+            <Text style={styles.policyHeading}>3. Location Tracking</Text>
+            <Text style={styles.policyText}>
+              Location services must be enabled to use SafeRides™ as a driver. Your live location is only visible to matched riders during an active trip and is used for safety, routing, and support purposes.
+            </Text>
+
+            <Text style={styles.policyHeading}>4. Information Sharing</Text>
+            <Text style={styles.policyText}>
+              We do not sell your personal information.{'\n\n'}
+              However, we may share your data with:{'\n'}
+              • Riders: Name, profile photo, vehicle info, and rating are visible to matched riders.{'\n'}
+              • Service Providers: Only those supporting payment processing, verification, or background checks.{'\n'}
+              • Law Enforcement: If legally required or in emergencies.
+            </Text>
+
+            <Text style={styles.policyHeading}>5. Data Security</Text>
+            <Text style={styles.policyText}>
+              We use encryption, secure storage, and access controls to protect your data. Despite this, no system is 100% secure, and we encourage you to protect your account credentials.
+            </Text>
+
+            <Text style={styles.policyHeading}>6. Your Choices</Text>
+            <Text style={styles.policyText}>
+              You can access and update your profile information at any time. You may delete your account by contacting us at saferideshelp@gmail.com — note that certain records (e.g. ride history or payment data) may be retained as required by law.
+            </Text>
+
+            <Text style={styles.policyHeading}>7. Changes to This Policy</Text>
+            <Text style={styles.policyText}>
+              We may update this policy from time to time. We'll notify you via email or in-app notice if changes are significant.
+            </Text>
+
+            <Text style={styles.policyHeading}>Questions?</Text>
+            <Text style={styles.policyText}>
+              If you have any questions about this policy or how your data is handled, contact us at:{'\n'}
+              saferideshelp@gmail.com
+            </Text>
+          </ScrollView>
+        </Accordion>
+
+        <Accordion
           title="Give feedback for improvement"
           icon={<Entypo name="chat" size={22} color={PRIMARY_BLUE} style={{ marginRight: 12 }} />}
           expanded={feedbackOpen}
           onPress={() => setFeedbackOpen((v) => !v)}
         >
           <TextInput
-            style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
+            style={[styles.input, styles.feedbackInput]}
             placeholder="Type your feedback here…"
             value={feedback}
             onChangeText={setFeedback}
             placeholderTextColor={GRAY}
             multiline
+            textAlignVertical="top"
           />
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSubmitFeedback}>
-            <Text style={styles.saveBtnText}>Submit Feedback</Text>
+          <TouchableOpacity 
+            style={[styles.saveBtn, isSubmittingFeedback && styles.saveBtnDisabled]} 
+            onPress={handleSubmitFeedback}
+            disabled={isSubmittingFeedback}
+          >
+            {isSubmittingFeedback ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveBtnText}>Submit Feedback</Text>
+            )}
           </TouchableOpacity>
         </Accordion>
 
@@ -479,14 +601,6 @@ const ProfileScreen = () => {
           <ScrollView style={{ maxHeight: 300 }}>
             <Text style={styles.infoText}>{TERMS_TEXT}</Text>
           </ScrollView>
-        </Accordion>
-        <Accordion
-          title="Trusted Contact"
-          icon={<Ionicons name="person-add-outline" size={22} color={PRIMARY_BLUE} style={{ marginRight: 12 }} />}
-          expanded={trustedOpen}
-          onPress={() => setTrustedOpen((v) => !v)}
-        >
-          <Text style={styles.infoText}>Add a trusted contact for emergencies. (Coming soon)</Text>
         </Accordion>
 
         {/* Logout */}
@@ -747,5 +861,49 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: {
     opacity: 0.7,
+  },
+  genderButtonDisabled: {
+    opacity: 0.8,
+  },
+  disabledNote: {
+    fontSize: 12,
+    color: GRAY,
+    fontStyle: 'italic',
+    marginTop: -8,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  feedbackInput: {
+    minHeight: 120,
+    paddingTop: 12,
+    paddingBottom: 12,
+    textAlignVertical: 'top',
+  },
+  policyScrollView: {
+    maxHeight: 400,
+  },
+  policyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#222',
+    marginBottom: 8,
+  },
+  policyDate: {
+    fontSize: 14,
+    color: GRAY,
+    marginBottom: 16,
+  },
+  policyHeading: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: PRIMARY_BLUE,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  policyText: {
+    fontSize: 14,
+    color: '#444',
+    lineHeight: 20,
+    marginBottom: 12,
   },
 });
