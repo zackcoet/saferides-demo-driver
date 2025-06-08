@@ -1,16 +1,21 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from '../screens/HomeScreen';
 import TripsScreen from '../screens/TripsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import RideDetailsScreen from '../screens/RideDetailsScreen';
+import DropOffScreen from '../screens/DropOffScreen';
 import { Ionicons } from '@expo/vector-icons';
 import type { IconProps } from '@expo/vector-icons/build/createIconSet';
+import { RootStackParamList } from './types';
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
-export default function TabNavigator() {
+function TabNavigatorContent() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -34,5 +39,35 @@ export default function TabNavigator() {
       <Tab.Screen name="Trips" component={TripsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
+  );
+}
+
+export default function TabNavigator() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="Home"
+        component={TabNavigatorContent}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="RideDetails"
+        component={RideDetailsScreen}
+        options={{
+          headerShown: true,
+          title: 'Ride Details',
+          headerBackTitle: 'Back',
+        }}
+      />
+      <Stack.Screen
+        name="DropOffScreen"
+        component={DropOffScreen}
+        options={{
+          headerShown: true,
+          title: 'Drop-off Location',
+          headerBackTitle: 'Back',
+        }}
+      />
+    </Stack.Navigator>
   );
 } 

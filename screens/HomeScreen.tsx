@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, Platform, SafeAreaView, Dimensions, FlatList, TouchableOpacity, Button, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, Platform, SafeAreaView, Dimensions, FlatList, TouchableOpacity, Button, Alert, ActivityIndicator, Modal, TextInput } from 'react-native';
 import MapView from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../config/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../services/AuthContext';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/types';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -14,6 +17,7 @@ interface RideRequest {
   id: string;
   destination?: string;
   riderName?: string;
+  riderCode?: string;
   [key: string]: any;
 }
 
@@ -22,6 +26,18 @@ interface Trip {
     price: number;
     date: any; // Firestore Timestamp
 }
+
+interface DriverData {
+    firstName: string;
+    lastName: string;
+    phoneNumber: string;
+    carMake: string;
+    carModel: string;
+    carColor: string;
+    carYear: string;
+}
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const HomeScreen = () => {
     const { user } = useAuth();
@@ -32,19 +48,64 @@ const HomeScreen = () => {
     const [todaysTrips, setTodaysTrips] = useState(0);
     const [todaysEarnings, setTodaysEarnings] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [driverData, setDriverData] = useState<DriverData | null>(null);
+    const navigation = useNavigation<NavigationProp>();
+    const [showCodeModal, setShowCodeModal] = useState(false);
+    const [enteredCode, setEnteredCode] = useState('');
+    const [selectedRide, setSelectedRide] = useState<RideRequest | null>(null);
 
+    // Debug ride requests
     useEffect(() => {
-        if (!isOnline) {
+        console.log('🔍 Current ride requests:', rideRequests);
+    }, [rideRequests]);
+
+    // Listen for ride requests when driver is online
+    useEffect(() => {
+        if (!isOnline || !user) {
+            console.log('🚫 Not listening for rides - Driver offline or not authenticated');
             setRideRequests([]);
             return;
         }
-        const q = query(collection(db, 'rides'), where('status', '==', 'waiting'));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const rides = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-            setRideRequests(rides);
-        });
-        return () => unsubscribe();
-    }, [isOnline]);
+
+        console.log('🎯 Setting up ride request listener...');
+        const q = query(
+            collection(db, 'rides'),
+            where('status', '==', 'requested')
+        );
+
+        const unsubscribe = onSnapshot(q, 
+            (snapshot) => {
+                console.log('📥 Received ride request update');
+                console.log('📊 Number of requests:', snapshot.docs.length);
+                
+                const rides = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    console.log('🚖 Ride request:', {
+                        id: doc.id,
+                        status: data.status,
+                        pickup: data.pickup,
+                        dropoff: data.dropoff
+                    });
+                    return {
+                        id: doc.id,
+                        ...data
+                    };
+                }) as RideRequest[];
+                
+                setRideRequests(rides);
+            }, 
+            (error) => {
+                console.error('❌ Error in ride request listener:', error);
+                Alert.alert('Error', 'Failed to load ride requests. Please try again.');
+            }
+        );
+
+        console.log('✅ Ride request listener active');
+        return () => {
+            console.log('🛑 Cleaning up ride request listener');
+            unsubscribe();
+        };
+    }, [isOnline, user]);
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, currentUser => {
@@ -78,18 +139,113 @@ const HomeScreen = () => {
         return () => unsub();
     }, []);
 
-    const acceptRide = async (rideId: string, rideData: any) => {
+    // Fetch driver data when component mounts
+    useEffect(() => {
+        if (!user) return;
+
+        const fetchDriverData = async () => {
+            try {
+                const driverDoc = await getDoc(doc(db, 'drivers', user.uid));
+                if (driverDoc.exists()) {
+                    const data = driverDoc.data();
+                    setDriverData({
+                        firstName: data.firstName || '',
+                        lastName: data.lastName || '',
+                        phoneNumber: data.phoneNumber || '',
+                        carMake: data.carMake || '',
+                        carModel: data.carModel || '',
+                        carColor: data.carColor || '',
+                        carYear: data.carYear || ''
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching driver data:', error);
+                Alert.alert('Error', 'Failed to load driver information');
+            }
+        };
+
+        fetchDriverData();
+    }, [user]);
+
+    const handleAcceptRide = async (rideId: string) => {
+        const driver = auth.currentUser;
+        if (!driver) {
+            Alert.alert('Error', 'Driver not authenticated');
+            return;
+        }
+
         try {
-            const rideRef = doc(db, 'rides', rideId);
-            await updateDoc(rideRef, {
+            setIsLoading(true);
+            
+            // Fetch driver's data and handle undefined fields
+            const driverDoc = await getDoc(doc(db, 'drivers', driver.uid));
+            const d = driverDoc.data() || {};
+
+            // Update ride with non-undefined values
+            await updateDoc(doc(db, 'rides', rideId), {
                 status: 'accepted',
-                driverId: 'driver123',
+                acceptedAt: serverTimestamp(),
+                driverId: driver.uid,
+                driverName: `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim(),
+                driverPhone: d.phoneNumber ?? '',
+                driverCar: {
+                    make: d.carMake ?? '',
+                    model: d.carModel ?? '',
+                    year: d.carYear ?? '',
+                    color: d.carColor ?? ''
+                }
             });
-            setAcceptedRide({ id: rideId, ...rideData });
-            setShowModal(true);
-            console.log('✅ Ride accepted');
-        } catch (e) {
-            console.error('❌ Failed to accept ride:', e);
+
+            // Get the ride details for navigation
+            const rideDoc = await getDoc(doc(db, 'rides', rideId));
+            if (rideDoc.exists()) {
+                const rideData = rideDoc.data();
+                navigation.navigate('RideDetails', {
+                    ride: {
+                        id: rideId,
+                        riderFirstName: rideData.riderFirstName,
+                        riderLastName: rideData.riderLastName,
+                        pickup: rideData.pickup,
+                        dropoff: rideData.dropoff,
+                        phoneNumber: rideData.phoneNumber,
+                        status: 'accepted',
+                        riderCode: rideData.riderCode
+                    },
+                });
+            }
+        } catch (error) {
+            console.error('Error accepting ride:', error);
+            Alert.alert('Error', 'Failed to accept ride. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handlePickedUpRider = async (rideId: string, riderCode: string) => {
+        setShowCodeModal(true);
+        setSelectedRide({ id: rideId, riderCode });
+    };
+
+    const handleVerifyCode = async () => {
+        if (!selectedRide) return;
+
+        if (enteredCode === selectedRide.riderCode) {
+            try {
+                await updateDoc(doc(db, 'rides', selectedRide.id), {
+                    status: 'in_progress'
+                });
+                setShowCodeModal(false);
+                setEnteredCode('');
+                // Navigate to drop-off screen or update UI
+            } catch (error) {
+                console.error('Error updating ride status:', error);
+                Alert.alert('Error', 'Failed to update ride status');
+            }
+        } else {
+            Alert.alert(
+                'Invalid code',
+                'Please ask the rider for the correct 4-digit code.'
+            );
         }
     };
 
@@ -153,7 +309,7 @@ const HomeScreen = () => {
                                     </Text>
                                     <View style={{ flexDirection: 'row', marginTop: 10, gap: 10 }}>
                                         <TouchableOpacity
-                                            onPress={() => acceptRide(item.id, item)}
+                                            onPress={() => handleAcceptRide(item.id)}
                                             style={{ backgroundColor: '#4CAF50', padding: 10, borderRadius: 5 }}
                                         >
                                             <Text style={{ color: 'white' }}>Accept</Text>
@@ -228,6 +384,49 @@ const HomeScreen = () => {
                     </View>
                 )}
             </View>
+
+            {/* Code Verification Modal */}
+            <Modal
+                visible={showCodeModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowCodeModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.codeModalContainer}>
+                        <Text style={styles.codeModalTitle}>Enter Pickup Code</Text>
+                        <Text style={styles.codeModalSubtitle}>
+                            Please ask the rider for their 4-digit code
+                        </Text>
+                        <TextInput
+                            style={styles.codeInput}
+                            value={enteredCode}
+                            onChangeText={setEnteredCode}
+                            keyboardType="number-pad"
+                            maxLength={4}
+                            placeholder="Enter 4-digit code"
+                            placeholderTextColor="#999"
+                        />
+                        <View style={styles.codeModalButtons}>
+                            <TouchableOpacity
+                                style={[styles.codeModalButton, styles.cancelButton]}
+                                onPress={() => {
+                                    setShowCodeModal(false);
+                                    setEnteredCode('');
+                                }}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.codeModalButton, styles.continueButton]}
+                                onPress={handleVerifyCode}
+                            >
+                                <Text style={styles.continueButtonText}>Continue</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 };
@@ -316,14 +515,25 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     toggleButton: {
+        backgroundColor: '#fff',
         padding: 16,
-        borderRadius: 10,
+        borderRadius: 12,
         alignItems: 'center',
         width: '90%',
         marginBottom: 16,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
     },
     toggleButtonOffline: {
-        backgroundColor: '#f0f0f0',
+        backgroundColor: '#F5F5F5',
+        borderColor: '#E0E0E0',
     },
     toggleIcon: {
         marginRight: 8,
@@ -331,10 +541,10 @@ const styles = StyleSheet.create({
     toggleText: {
         color: '#174EA6',
         fontSize: 18,
-        fontWeight: 'bold',
+        fontWeight: '600',
     },
     toggleTextOffline: {
-        color: '#888',
+        color: '#666',
     },
     statsRow: {
         flexDirection: 'row',
@@ -426,6 +636,69 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    codeModalContainer: {
+        backgroundColor: 'white',
+        borderRadius: 12,
+        padding: 24,
+        width: '90%',
+        maxWidth: 400,
+    },
+    codeModalTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#333',
+        marginBottom: 8,
+        textAlign: 'center',
+    },
+    codeModalSubtitle: {
+        fontSize: 16,
+        color: '#666',
+        marginBottom: 24,
+        textAlign: 'center',
+    },
+    codeInput: {
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 8,
+        padding: 16,
+        fontSize: 24,
+        textAlign: 'center',
+        marginBottom: 24,
+        letterSpacing: 8,
+    },
+    codeModalButtons: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        gap: 12,
+    },
+    codeModalButton: {
+        flex: 1,
+        padding: 16,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    cancelButton: {
+        backgroundColor: '#f5f5f5',
+    },
+    continueButton: {
+        backgroundColor: '#174EA6',
+    },
+    cancelButtonText: {
+        color: '#666',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    continueButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '600',
     },
 });
 

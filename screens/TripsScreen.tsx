@@ -7,18 +7,21 @@ import { query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from 'fire
 import { tripsCol } from '../firebase/collections';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
+import { collection } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 const PRIMARY_BLUE = '#174EA6';
 const GRAY = '#888';
 
 interface Trip {
     id: string;
-    driverId: string;
-    riderId: string;
-    destination: string;
+    riderFirstName: string;
+    riderLastName: string;
     pickup: string;
+    dropoff: string;
     price: number;
     date: any; // Firestore Timestamp
+    status: 'completed' | 'picked_up' | 'accepted';
 }
 
 interface TripDocument {
@@ -36,34 +39,32 @@ const TripsScreen = () => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const unsub = onAuthStateChanged(auth, currentUser => {
-            if (!currentUser) return;
+        if (!user) {
+            setIsLoading(false);
+            return;
+        }
 
-            const q = query(
-                tripsCol,
-                where('driverId', '==', currentUser.uid),
-                orderBy('date', 'desc')
-            );
+        const q = query(
+            collection(db, 'rides'),
+            where('driverId', '==', user.uid),
+            where('status', '==', 'completed')
+        );
 
-            return onSnapshot(q, 
-                snap => {
-                    const data = snap.docs.map(d => ({
-                        id: d.id,
-                        ...(d.data() as TripDocument)
-                    })) as Trip[];
-                    setTrips(data);
-                    setIsLoading(false);
-                },
-                error => {
-                    console.error('Error fetching trips:', error);
-                    Alert.alert('Error', 'Failed to load trips. Please try again.');
-                    setIsLoading(false);
-                }
-            );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const tripData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            })) as Trip[];
+            setTrips(tripData);
+            setIsLoading(false);
+        }, (error) => {
+            console.error('Error fetching trips:', error);
+            Alert.alert('Error', 'Failed to load trips. Please try again.');
+            setIsLoading(false);
         });
 
-        return () => unsub && unsub();
-    }, []);
+        return () => unsubscribe();
+    }, [user]);
 
     const handleCompleteRide = async (riderId: string, destination: string, pickup: string, price: number) => {
         if (!user) return;
@@ -83,8 +84,15 @@ const TripsScreen = () => {
         }
     };
 
+    const formatPrice = (price: number | undefined) => {
+        if (typeof price === 'number') {
+            return `$${price.toFixed(2)}`;
+        }
+        return 'N/A';
+    };
+
     const formatDate = (timestamp: any) => {
-        if (!timestamp) return '';
+        if (!timestamp?.toDate) return 'N/A';
         const date = timestamp.toDate();
         return date.toLocaleDateString('en-US', {
             month: 'short',
@@ -98,26 +106,27 @@ const TripsScreen = () => {
     const renderTrip = ({ item }: { item: Trip }) => (
         <View style={styles.tripCard}>
             <View style={styles.tripHeader}>
-                <View style={styles.driverInfo}>
-                    <Image
-                        source={{ uri: 'https://via.placeholder.com/40' }}
-                        style={styles.driverPhoto}
-                    />
-                    <View>
-                        <Text style={styles.driverName}>Driver Name</Text>
-                        <Text style={styles.tripDate}>{formatDate(item.date)}</Text>
-                    </View>
-                </View>
-                <Text style={styles.tripPrice}>${item.price.toFixed(2)}</Text>
+                <Text style={styles.riderName}>
+                    {item.riderFirstName} {item.riderLastName}
+                </Text>
+                <Text style={styles.tripDate}>
+                    {formatDate(item.date)}
+                </Text>
             </View>
             <View style={styles.tripDetails}>
                 <View style={styles.locationRow}>
-                    <Ionicons name="location" size={20} color={PRIMARY_BLUE} />
+                    <Ionicons name="location" size={20} color="#1976D2" />
                     <Text style={styles.locationText}>{item.pickup}</Text>
                 </View>
                 <View style={styles.locationRow}>
-                    <Ionicons name="location" size={20} color={PRIMARY_BLUE} />
-                    <Text style={styles.locationText}>{item.destination}</Text>
+                    <Ionicons name="location" size={20} color="#4CAF50" />
+                    <Text style={styles.locationText}>{item.dropoff}</Text>
+                </View>
+            </View>
+            <View style={styles.tripFooter}>
+                <Text style={styles.price}>{formatPrice(item.price)}</Text>
+                <View style={styles.statusBadge}>
+                    <Text style={styles.statusText}>Completed</Text>
                 </View>
             </View>
         </View>
@@ -130,7 +139,20 @@ const TripsScreen = () => {
                     <Text style={styles.headerTitle}>SafeRides</Text>
                 </View>
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={PRIMARY_BLUE} />
+                    <ActivityIndicator size="large" color="#1976D2" />
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    if (!user) {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <View style={styles.header}>
+                    <Text style={styles.headerTitle}>SafeRides</Text>
+                </View>
+                <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>Please sign in to view your trips</Text>
                 </View>
             </SafeAreaView>
         );
@@ -149,7 +171,7 @@ const TripsScreen = () => {
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyText}>No trips yet</Text>
+                        <Text style={styles.emptyText}>No completed trips yet</Text>
                     </View>
                 }
             />
@@ -184,13 +206,14 @@ const styles = StyleSheet.create({
     },
     tripCard: {
         backgroundColor: '#fff',
-        borderRadius: 16,
+        borderRadius: 12,
         padding: 16,
-        marginBottom: 12,
+        marginBottom: 16,
         shadowColor: '#000',
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        elevation: 2,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
     },
     tripHeader: {
         flexDirection: 'row',
@@ -198,52 +221,60 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 12,
     },
-    driverInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    driverPhoto: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        marginRight: 12,
-    },
-    driverName: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#222',
+    riderName: {
+        fontSize: 18,
+        fontWeight: '600',
     },
     tripDate: {
+        color: '#666',
         fontSize: 14,
-        color: GRAY,
-        marginTop: 2,
-    },
-    tripPrice: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: PRIMARY_BLUE,
     },
     tripDetails: {
-        gap: 8,
+        marginBottom: 12,
     },
     locationRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        marginBottom: 8,
     },
     locationText: {
-        fontSize: 15,
-        color: '#222',
         marginLeft: 8,
+        fontSize: 16,
+        color: '#333',
+    },
+    tripFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderTopWidth: 1,
+        borderTopColor: '#eee',
+        paddingTop: 12,
+    },
+    price: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1976D2',
+    },
+    statusBadge: {
+        backgroundColor: '#4CAF50',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
+    },
+    statusText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '500',
     },
     emptyContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 32,
+        paddingTop: 32,
     },
     emptyText: {
         fontSize: 16,
-        color: GRAY,
+        color: '#666',
     },
 });
 
