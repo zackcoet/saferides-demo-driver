@@ -26,7 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 type RideDetailsRouteProp = RouteProp<RootStackParamList, 'RideDetails'>;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const PRIMARY_BLUE = '#0A3AFF';
+const PRIMARY_BLUE = '#174EA6';
 
 const RideDetailsScreen = () => {
     const navigation = useNavigation<NavigationProp>();
@@ -38,55 +38,20 @@ const RideDetailsScreen = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isCodeVerified, setIsCodeVerified] = useState(false);
     const [codeError, setCodeError] = useState('');
-    const [rideData, setRideData] = useState<any>(null);
 
-    // Fetch rider data and update ride document if needed
+    // Fetch pickup code
     useEffect(() => {
-        const fetchRiderData = async () => {
-            try {
-                const rideRef = doc(db, 'rides', ride.id);
-                const rideSnap = await getDoc(rideRef);
-                
-                if (!rideSnap.exists()) {
-                    console.error('Ride not found');
-                    return;
-                }
-
-                const rideData = rideSnap.data();
-                
-                // Only fetch rider data if we're missing required fields
-                if (!rideData.riderName || !rideData.riderPhone || !rideData.riderGender) {
-                    const riderSnap = await getDoc(doc(db, 'riders', ride.riderId));
-                    const riderData = riderSnap.data();
-
-                    if (riderData) {
-                        // Update ride document with rider info
-                        await updateDoc(rideRef, {
-                            riderName: riderData.fullName?.trim() || '',
-                            riderPhone: riderData.phone?.trim() || '',
-                            riderGender: riderData.gender?.trim() || '',
-                        });
-                    }
-                }
-
-                // Listen for ride updates
-                const unsubscribe = onSnapshot(rideRef, (doc) => {
-                    if (doc.exists()) {
-                        const data = doc.data();
-                        setRideData(data);
-                        const code = data.pickupCode?.toString() || null;
-                        setPickupCode(code);
-                    }
-                });
-
-                return () => unsubscribe();
-            } catch (error) {
-                console.error('Error fetching rider data:', error);
+        const rideRef = doc(db, 'rides', ride.id);
+        const unsubscribe = onSnapshot(rideRef, (doc) => {
+            if (doc.exists()) {
+                const data = doc.data();
+                const code = data.pickupCode?.toString() || null;
+                setPickupCode(code);
             }
-        };
+        });
 
-        fetchRiderData();
-    }, [ride.id, ride.riderId]);
+        return () => unsubscribe();
+    }, [ride.id]);
 
     const handleCodeSubmit = () => {
         const trimmedEnteredCode = enteredCode.trim();
@@ -172,22 +137,9 @@ const RideDetailsScreen = () => {
         }
     };
 
-    const renderInfoRow = (label: string, value: string | undefined, isLink: boolean = false) => (
-        <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>{label}</Text>
-            {isLink && value ? (
-                <TouchableOpacity onPress={() => Linking.openURL(`tel:${value}`)}>
-                    <Text style={styles.infoValueLink}>{value || '—'}</Text>
-                </TouchableOpacity>
-            ) : (
-                <Text style={styles.infoValue}>{value || '—'}</Text>
-            )}
-        </View>
-    );
-
     return (
-        <SafeAreaView style={styles.outerContainer}>
-            <StatusBar barStyle="light-content" backgroundColor={PRIMARY_BLUE} />
+        <SafeAreaView style={{flex: 1, backgroundColor: '#0A3AFF'}}>
+            <StatusBar barStyle="light-content" backgroundColor="#0A3AFF" />
             <KeyboardAvoidingView 
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardAvoid}
@@ -205,7 +157,7 @@ const RideDetailsScreen = () => {
                                 <View style={styles.locationText}>
                                     <Text style={styles.locationLabel}>Pickup</Text>
                                     <Text style={styles.locationValue}>
-                                        {ride.pickup || '📍 See map'}
+                                        {ride.pickupAddress || 'Location not available'}
                                     </Text>
                                 </View>
                             </View>
@@ -213,9 +165,26 @@ const RideDetailsScreen = () => {
                             <View style={styles.divider} />
 
                             {/* Rider Information */}
-                            {renderInfoRow('Name', rideData?.riderName)}
-                            {renderInfoRow('Phone', rideData?.riderPhone, true)}
-                            {renderInfoRow('Gender', rideData?.riderGender)}
+                            <View style={styles.infoSection}>
+                                <View style={styles.infoRow}>
+                                    <Text style={styles.infoLabel}>Name</Text>
+                                    <Text style={styles.infoValue}>{ride.riderName || '—'}</Text>
+                                </View>
+                                <View style={styles.infoRow}>
+                                    <Text style={styles.infoLabel}>Phone</Text>
+                                    {ride.riderPhone ? (
+                                        <TouchableOpacity onPress={() => Linking.openURL(`tel:${ride.riderPhone}`)}>
+                                            <Text style={styles.infoValueLink}>{ride.riderPhone}</Text>
+                                        </TouchableOpacity>
+                                    ) : (
+                                        <Text style={styles.infoValue}>—</Text>
+                                    )}
+                                </View>
+                                <View style={styles.infoRow}>
+                                    <Text style={styles.infoLabel}>Gender</Text>
+                                    <Text style={styles.infoValue}>{ride.riderGender || '—'}</Text>
+                                </View>
+                            </View>
 
                             <View style={styles.divider} />
 
@@ -331,6 +300,36 @@ const styles = StyleSheet.create({
         backgroundColor: '#eee',
         marginVertical: 20,
     },
+    infoSection: {
+        marginBottom: 8,
+    },
+    infoRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 4,
+    },
+    infoLabel: {
+        fontSize: 16,
+        color: '#666',
+        flex: 1,
+    },
+    infoValue: {
+        fontSize: 16,
+        color: '#333',
+        fontWeight: '500',
+        flex: 1,
+        textAlign: 'right',
+    },
+    infoValueLink: {
+        fontSize: 16,
+        color: PRIMARY_BLUE,
+        fontWeight: '500',
+        flex: 1,
+        textAlign: 'right',
+        textDecorationLine: 'underline',
+    },
     codeTitle: {
         fontSize: 18,
         fontWeight: '600',
@@ -384,33 +383,6 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 16,
         fontWeight: '600',
-    },
-    infoRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: 4,
-    },
-    infoLabel: {
-        fontSize: 16,
-        color: '#666',
-        flex: 1,
-    },
-    infoValue: {
-        fontSize: 16,
-        color: '#333',
-        fontWeight: '500',
-        flex: 1,
-        textAlign: 'right',
-    },
-    infoValueLink: {
-        fontSize: 16,
-        color: PRIMARY_BLUE,
-        fontWeight: '500',
-        flex: 1,
-        textAlign: 'right',
-        textDecorationLine: 'underline',
     },
 });
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, Platform, SafeAreaView, Dimensions, FlatList, TouchableOpacity, Button, Alert, ActivityIndicator, Modal, TextInput, StatusBar } from 'react-native';
-import MapView from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../config/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -10,14 +10,24 @@ import { auth } from '../config/firebase';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import * as Location from 'expo-location';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface RideRequest {
   id: string;
+  riderId: string;
+  pickupAddress?: string;
+  pickupLocation?: {
+    latitude: number;
+    longitude: number;
+  };
   destination?: string;
   riderName?: string;
-  riderCode?: string;
+  riderPhone?: string;
+  riderGender?: string;
+  estimatedTime?: number | null;
+  lastUpdated?: number;
   [key: string]: any;
 }
 
@@ -41,6 +51,8 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const PRIMARY_BLUE = '#0A3AFF';
 
+const REFRESH_INTERVAL = 2 * 60 * 1000; // 2 minutes in milliseconds
+
 const HomeScreen = () => {
     const { user } = useAuth();
     const [rideRequests, setRideRequests] = useState<RideRequest[]>([]);
@@ -55,6 +67,8 @@ const HomeScreen = () => {
     const [showCodeModal, setShowCodeModal] = useState(false);
     const [enteredCode, setEnteredCode] = useState('');
     const [selectedRide, setSelectedRide] = useState<RideRequest | null>(null);
+    const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
+    const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
 
     // Debug ride requests
     useEffect(() => {
@@ -169,6 +183,97 @@ const HomeScreen = () => {
         fetchDriverData();
     }, [user]);
 
+    // Get current location
+    useEffect(() => {
+        (async () => {
+            let { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                console.error('Location permission denied');
+                return;
+            }
+
+            let location = await Location.getCurrentPositionAsync({});
+            setCurrentLocation(location);
+
+            // Set up location updates
+            const locationSubscription = await Location.watchPositionAsync(
+                {
+                    accuracy: Location.Accuracy.High,
+                    timeInterval: 10000,
+                    distanceInterval: 10,
+                },
+                (newLocation: Location.LocationObject) => {
+                    setCurrentLocation(newLocation);
+                }
+            );
+
+            return () => {
+                locationSubscription.remove();
+            };
+        })();
+    }, []);
+
+    // Calculate estimated time for each ride request
+    useEffect(() => {
+        if (!currentLocation || !isOnline || rideRequests.length === 0) return;
+
+        const calculateEstimatedTime = async (request: RideRequest) => {
+            if (!request.pickupLocation) return null;
+
+            // Skip if we've updated this request recently
+            const now = Date.now();
+            if (request.lastUpdated && now - request.lastUpdated < REFRESH_INTERVAL) {
+                return request.estimatedTime;
+            }
+
+            try {
+                const response = await fetch(
+                    `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${currentLocation.coords.latitude},${currentLocation.coords.longitude}&destinations=${request.pickupLocation.latitude},${request.pickupLocation.longitude}&key=AIzaSyBv4wmmv6zyT0KpJxWpbErp-e5wioke2PE`
+                );
+                const data = await response.json();
+
+                if (data.status === 'OK' && data.rows[0]?.elements[0]?.duration) {
+                    const durationInMinutes = Math.ceil(data.rows[0].elements[0].duration.value / 60);
+                    return durationInMinutes;
+                }
+                return null;
+            } catch (error) {
+                console.error('Error calculating estimated time:', error);
+                return null;
+            }
+        };
+
+        const updateRideRequestsWithTime = async () => {
+            const now = Date.now();
+            // Only update if 2 minutes have passed since last refresh
+            if (now - lastRefreshTime < REFRESH_INTERVAL) {
+                return;
+            }
+
+            const updatedRequests = await Promise.all(
+                rideRequests.map(async (request) => {
+                    const estimatedTime = await calculateEstimatedTime(request);
+                    return { 
+                        ...request, 
+                        estimatedTime,
+                        lastUpdated: now
+                    };
+                })
+            );
+            setRideRequests(updatedRequests as RideRequest[]);
+            setLastRefreshTime(now);
+        };
+
+        updateRideRequestsWithTime();
+
+        // Set up interval for regular updates
+        const intervalId = setInterval(updateRideRequestsWithTime, REFRESH_INTERVAL);
+
+        return () => {
+            clearInterval(intervalId);
+        };
+    }, [currentLocation, isOnline, rideRequests, lastRefreshTime]);
+
     const handleAcceptRide = async (rideId: string) => {
         try {
             setIsLoading(true);
@@ -179,37 +284,56 @@ const HomeScreen = () => {
                 return;
             }
 
-            // Fetch driver's profile
-            const driverSnap = await getDoc(doc(db, 'drivers', currentUser.uid));
-            const driverData = driverSnap.data() ?? {};
+            // Get ride reference
+            const rideRef = doc(db, 'rides', rideId);
+            const rideSnap = await getDoc(rideRef);
+            
+            if (!rideSnap.exists()) {
+                Alert.alert('Error', 'Ride not found');
+                return;
+            }
+
+            const rideData = rideSnap.data();
+            
+            // Fetch rider profile
+            const riderSnap = await getDoc(doc(db, 'riders', rideData.riderId));
+            const riderData = riderSnap.data() ?? {};
+
+            // Fetch driver profile
+            const dSnap = await getDoc(doc(db, 'drivers', currentUser.uid));
+            const d = dSnap.data() ?? {};
+
+            // Build update data
+            const updateData: any = {
+                status: 'accepted',
+                driverName: `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim(),
+                driverPhone: d.phoneNumber ?? '',
+                driverGender: d.gender ?? '',
+                driverCar: {
+                    make: d.carMake ?? '',
+                    model: d.carModel ?? '',
+                    color: d.carColor ?? '',
+                    year: d.carYear ?? '',
+                },
+                driverPlate: d.plate ?? '',
+            };
+
+            // Log update data
+            console.log('🚚 driver updating ride:', updateData);
 
             // Update ride with driver information
-            await updateDoc(doc(db, 'rides', rideId), {
-                driverId: currentUser.uid,
-                driverName: `${driverData.firstName ?? ''} ${driverData.lastName ?? ''}`.trim(),
-                driverPhone: driverData.phoneNumber ?? '',
-                driverGender: driverData.gender ?? '',
-                driverCar: {
-                    make: driverData.carMake ?? '',
-                    model: driverData.carModel ?? '',
-                    color: driverData.carColor ?? '',
-                    year: driverData.carYear ?? '',
-                },
-                driverPlate: driverData.licensePlate ?? '',
-                status: 'accepted',
-                acceptedAt: serverTimestamp(),
-            }, { merge: true });
+            await updateDoc(rideRef, updateData, { merge: true });
 
-            // Navigate to ride details
+            // Navigate to ride details with updated data
             navigation.navigate('RideDetails', {
                 ride: {
                     id: rideId,
-                    riderId: currentUser.uid,
-                    riderFirstName: '',
-                    riderLastName: '',
-                    pickup: '',
-                    dropoff: '',
-                    phoneNumber: '',
+                    riderId: rideData.riderId,
+                    pickupAddress: rideData.pickupAddress,
+                    pickupLocation: rideData.pickupLocation,
+                    riderName: rideData.riderName || `${riderData.firstName ?? ''} ${riderData.lastName ?? ''}`.trim(),
+                    riderPhone: rideData.riderPhone || riderData.phoneNumber,
+                    riderGender: rideData.riderGender || riderData.gender,
                     status: 'accepted'
                 }
             });
@@ -305,8 +429,16 @@ const HomeScreen = () => {
                             keyExtractor={(item) => item.id}
                             renderItem={({ item }) => (
                                 <View style={styles.requestCard}>
+                                    <Text style={styles.pickupText}>
+                                        Rider is at: {item.pickupAddress || 'Location not available'}
+                                    </Text>
+                                    {item.estimatedTime !== undefined && (
+                                        <Text style={styles.timeText}>
+                                            {item.estimatedTime ? `${item.estimatedTime} minutes away` : 'Calculating ETA...'}
+                                        </Text>
+                                    )}
                                     <Text style={styles.requestText}>
-                                        Rider going to: {item.destination}
+                                        Going to: {item.destination || 'Destination not specified'}
                                     </Text>
                                     <View style={styles.requestButtons}>
                                         <TouchableOpacity
@@ -469,9 +601,15 @@ const styles = StyleSheet.create({
         padding: 10,
         marginBottom: 8,
     },
-    requestText: {
+    pickupText: {
         fontSize: 16,
         color: '#222',
+        marginBottom: 4,
+        fontWeight: '500',
+    },
+    requestText: {
+        fontSize: 16,
+        color: '#666',
     },
     requestButtons: {
         flexDirection: 'row',
@@ -652,6 +790,13 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 16,
         fontWeight: '600',
+    },
+    timeText: {
+        fontSize: 14,
+        color: PRIMARY_BLUE,
+        marginBottom: 4,
+        fontWeight: '500',
+        fontStyle: 'italic',
     },
 });
 

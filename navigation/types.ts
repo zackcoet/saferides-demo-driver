@@ -6,27 +6,21 @@ export type RootStackParamList = {
     ride: {
       id: string;
       riderId: string;
-      riderFirstName: string;
-      riderLastName: string;
-      pickup: string;
-      dropoff: string;
-      phoneNumber: string;
-      status: 'accepted' | 'picked_up' | 'completed';
-      riderCode?: string;
+      pickupAddress?: string;
       pickupLocation?: {
         latitude: number;
         longitude: number;
       };
-      dropoffLocation?: {
-        latitude: number;
-        longitude: number;
-      };
+      riderName?: string;
+      riderPhone?: string;
+      riderGender?: string;
+      status: 'accepted' | 'picked_up' | 'completed';
+      riderCode?: string;
     };
   };
   DropOffScreen: {
     rideId: string;
-    dropoffAddress: string;
-    pickupLocation?: {
+    pickupLocation: {
       latitude: number;
       longitude: number;
     };
@@ -34,6 +28,7 @@ export type RootStackParamList = {
       latitude: number;
       longitude: number;
     };
+    dropoffAddress?: string;
   };
   RideDetailsScreen: {
     ride: {
