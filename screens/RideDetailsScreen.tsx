@@ -12,7 +12,8 @@ import {
     ScrollView,
     TouchableWithoutFeedback,
     Keyboard,
-    Linking
+    Linking,
+    StatusBar
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,6 +25,8 @@ import { Ionicons } from '@expo/vector-icons';
 
 type RideDetailsRouteProp = RouteProp<RootStackParamList, 'RideDetails'>;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const PRIMARY_BLUE = '#0A3AFF';
 
 const RideDetailsScreen = () => {
     const navigation = useNavigation<NavigationProp>();
@@ -37,20 +40,53 @@ const RideDetailsScreen = () => {
     const [codeError, setCodeError] = useState('');
     const [rideData, setRideData] = useState<any>(null);
 
-    // Listen for ride updates including pickupCode
+    // Fetch rider data and update ride document if needed
     useEffect(() => {
-        const unsubscribe = onSnapshot(doc(db, 'rides', ride.id), (doc) => {
-            if (doc.exists()) {
-                const data = doc.data();
-                setRideData(data);
-                const code = data.pickupCode?.toString() || null;
-                setPickupCode(code);
-                console.log('Pickup code from Firestore:', code);
-            }
-        });
+        const fetchRiderData = async () => {
+            try {
+                const rideRef = doc(db, 'rides', ride.id);
+                const rideSnap = await getDoc(rideRef);
+                
+                if (!rideSnap.exists()) {
+                    console.error('Ride not found');
+                    return;
+                }
 
-        return () => unsubscribe();
-    }, [ride.id]);
+                const rideData = rideSnap.data();
+                
+                // Only fetch rider data if we're missing required fields
+                if (!rideData.riderName || !rideData.riderPhone || !rideData.riderGender) {
+                    const riderSnap = await getDoc(doc(db, 'riders', ride.riderId));
+                    const riderData = riderSnap.data();
+
+                    if (riderData) {
+                        // Update ride document with rider info
+                        await updateDoc(rideRef, {
+                            riderName: riderData.fullName?.trim() || '',
+                            riderPhone: riderData.phone?.trim() || '',
+                            riderGender: riderData.gender?.trim() || '',
+                        });
+                    }
+                }
+
+                // Listen for ride updates
+                const unsubscribe = onSnapshot(rideRef, (doc) => {
+                    if (doc.exists()) {
+                        const data = doc.data();
+                        setRideData(data);
+                        const code = data.pickupCode?.toString() || null;
+                        setPickupCode(code);
+                    }
+                });
+
+                return () => unsubscribe();
+            } catch (error) {
+                console.error('Error fetching rider data:', error);
+            }
+        };
+
+        fetchRiderData();
+    }, [ride.id, ride.riderId]);
 
     const handleCodeSubmit = () => {
         const trimmedEnteredCode = enteredCode.trim();
@@ -151,6 +187,7 @@ const RideDetailsScreen = () => {
 
     return (
         <SafeAreaView style={styles.outerContainer}>
+            <StatusBar barStyle="light-content" backgroundColor={PRIMARY_BLUE} />
             <KeyboardAvoidingView 
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardAvoid}
@@ -164,11 +201,11 @@ const RideDetailsScreen = () => {
                         <View style={styles.card}>
                             {/* Pickup Location */}
                             <View style={styles.locationRow}>
-                                <Ionicons name="location" size={24} color="#174EA6" />
+                                <Ionicons name="location" size={24} color={PRIMARY_BLUE} />
                                 <View style={styles.locationText}>
                                     <Text style={styles.locationLabel}>Pickup</Text>
                                     <Text style={styles.locationValue}>
-                                        {ride.pickup || 'Pin on map'}
+                                        {ride.pickup || '📍 See map'}
                                     </Text>
                                 </View>
                             </View>
@@ -176,8 +213,8 @@ const RideDetailsScreen = () => {
                             <View style={styles.divider} />
 
                             {/* Rider Information */}
-                            {renderInfoRow('Name', rideData?.riderName || `${ride.riderFirstName} ${ride.riderLastName}`)}
-                            {renderInfoRow('Phone', rideData?.riderPhone || ride.phoneNumber, true)}
+                            {renderInfoRow('Name', rideData?.riderName)}
+                            {renderInfoRow('Phone', rideData?.riderPhone, true)}
                             {renderInfoRow('Gender', rideData?.riderGender)}
 
                             <View style={styles.divider} />
@@ -246,7 +283,7 @@ const RideDetailsScreen = () => {
 const styles = StyleSheet.create({
     outerContainer: {
         flex: 1,
-        backgroundColor: '#0A3AFF',
+        backgroundColor: PRIMARY_BLUE,
     },
     keyboardAvoid: {
         flex: 1,
@@ -306,7 +343,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         letterSpacing: 12,
         borderBottomWidth: 2,
-        borderColor: '#174EA6',
+        borderColor: PRIMARY_BLUE,
         paddingVertical: 12,
         marginBottom: 8,
         backgroundColor: '#f8fafc',
@@ -325,7 +362,7 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     submitButton: {
-        backgroundColor: '#2563eb',
+        backgroundColor: PRIMARY_BLUE,
         height: 48,
         borderRadius: 8,
         alignItems: 'center',
@@ -333,7 +370,7 @@ const styles = StyleSheet.create({
         marginTop: 16,
     },
     pickedUpButton: {
-        backgroundColor: '#174EA6',
+        backgroundColor: PRIMARY_BLUE,
         height: 48,
         borderRadius: 8,
         alignItems: 'center',
@@ -369,7 +406,7 @@ const styles = StyleSheet.create({
     },
     infoValueLink: {
         fontSize: 16,
-        color: '#174EA6',
+        color: PRIMARY_BLUE,
         fontWeight: '500',
         flex: 1,
         textAlign: 'right',

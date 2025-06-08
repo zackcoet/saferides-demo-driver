@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, Platform, SafeAreaView, Dimensions, FlatList, TouchableOpacity, Button, Alert, ActivityIndicator, Modal, TextInput } from 'react-native';
+import { StyleSheet, View, Text, Platform, SafeAreaView, Dimensions, FlatList, TouchableOpacity, Button, Alert, ActivityIndicator, Modal, TextInput, StatusBar } from 'react-native';
 import MapView from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../config/firebase';
@@ -38,6 +38,8 @@ interface DriverData {
 }
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const PRIMARY_BLUE = '#0A3AFF';
 
 const HomeScreen = () => {
     const { user } = useAuth();
@@ -168,51 +170,49 @@ const HomeScreen = () => {
     }, [user]);
 
     const handleAcceptRide = async (rideId: string) => {
-        const driver = auth.currentUser;
-        if (!driver) {
-            Alert.alert('Error', 'Driver not authenticated');
-            return;
-        }
-
         try {
             setIsLoading(true);
+            const currentUser = auth.currentUser;
             
-            // Fetch driver's data and handle undefined fields
-            const driverDoc = await getDoc(doc(db, 'drivers', driver.uid));
-            const d = driverDoc.data() || {};
+            if (!currentUser) {
+                Alert.alert('Error', 'You must be logged in to accept rides');
+                return;
+            }
 
-            // Update ride with non-undefined values
+            // Fetch driver's profile
+            const driverSnap = await getDoc(doc(db, 'drivers', currentUser.uid));
+            const driverData = driverSnap.data() ?? {};
+
+            // Update ride with driver information
             await updateDoc(doc(db, 'rides', rideId), {
+                driverId: currentUser.uid,
+                driverName: `${driverData.firstName ?? ''} ${driverData.lastName ?? ''}`.trim(),
+                driverPhone: driverData.phoneNumber ?? '',
+                driverGender: driverData.gender ?? '',
+                driverCar: {
+                    make: driverData.carMake ?? '',
+                    model: driverData.carModel ?? '',
+                    color: driverData.carColor ?? '',
+                    year: driverData.carYear ?? '',
+                },
+                driverPlate: driverData.licensePlate ?? '',
                 status: 'accepted',
                 acceptedAt: serverTimestamp(),
-                driverId: driver.uid,
-                driverName: `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim(),
-                driverPhone: d.phoneNumber ?? '',
-                driverCar: {
-                    make: d.carMake ?? '',
-                    model: d.carModel ?? '',
-                    year: d.carYear ?? '',
-                    color: d.carColor ?? ''
+            }, { merge: true });
+
+            // Navigate to ride details
+            navigation.navigate('RideDetails', {
+                ride: {
+                    id: rideId,
+                    riderId: currentUser.uid,
+                    riderFirstName: '',
+                    riderLastName: '',
+                    pickup: '',
+                    dropoff: '',
+                    phoneNumber: '',
+                    status: 'accepted'
                 }
             });
-
-            // Get the ride details for navigation
-            const rideDoc = await getDoc(doc(db, 'rides', rideId));
-            if (rideDoc.exists()) {
-                const rideData = rideDoc.data();
-                navigation.navigate('RideDetails', {
-                    ride: {
-                        id: rideId,
-                        riderFirstName: rideData.riderFirstName,
-                        riderLastName: rideData.riderLastName,
-                        pickup: rideData.pickup,
-                        dropoff: rideData.dropoff,
-                        phoneNumber: rideData.phoneNumber,
-                        status: 'accepted',
-                        riderCode: rideData.riderCode
-                    },
-                });
-            }
         } catch (error) {
             console.error('Error accepting ride:', error);
             Alert.alert('Error', 'Failed to accept ride. Please try again.');
@@ -278,6 +278,7 @@ const HomeScreen = () => {
 
     return (
         <SafeAreaView style={styles.safeArea}>
+            <StatusBar barStyle="light-content" backgroundColor={PRIMARY_BLUE} />
             <View style={styles.container}>
                 {/* Map as background */}
                 <MapView
@@ -295,7 +296,7 @@ const HomeScreen = () => {
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>SafeRides</Text>
                 </View>
-                {/* Ride Requests Overlay (only when online) */}
+                {/* Ride Requests Overlay */}
                 {isOnline && rideRequests.length > 0 && (
                     <View style={styles.requestsOverlay}>
                         <Text style={styles.requestsTitle}>Incoming Ride Requests:</Text>
@@ -303,22 +304,22 @@ const HomeScreen = () => {
                             data={rideRequests}
                             keyExtractor={(item) => item.id}
                             renderItem={({ item }) => (
-                                <View style={{ marginBottom: 15, padding: 10, backgroundColor: '#f0f0f0', borderRadius: 8 }}>
-                                    <Text style={{ fontSize: 16, fontWeight: '600' }}>
+                                <View style={styles.requestCard}>
+                                    <Text style={styles.requestText}>
                                         Rider going to: {item.destination}
                                     </Text>
-                                    <View style={{ flexDirection: 'row', marginTop: 10, gap: 10 }}>
+                                    <View style={styles.requestButtons}>
                                         <TouchableOpacity
                                             onPress={() => handleAcceptRide(item.id)}
-                                            style={{ backgroundColor: '#4CAF50', padding: 10, borderRadius: 5 }}
+                                            style={styles.acceptButton}
                                         >
-                                            <Text style={{ color: 'white' }}>Accept</Text>
+                                            <Text style={styles.acceptButtonText}>Accept</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             onPress={() => declineRide(item.id)}
-                                            style={{ backgroundColor: '#FF5E5E', padding: 10, borderRadius: 5 }}
+                                            style={styles.declineButton}
                                         >
-                                            <Text style={{ color: 'white' }}>Decline</Text>
+                                            <Text style={styles.declineButtonText}>Decline</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
@@ -326,10 +327,15 @@ const HomeScreen = () => {
                         />
                     </View>
                 )}
-                {/* Card and Stats at Bottom */}
+                {/* Bottom Container */}
                 <View style={styles.bottomContainer} pointerEvents="box-none">
                     <View style={styles.statusRow}>
-                        <Ionicons name={isOnline ? 'ellipse' : 'ellipse-outline'} size={16} color={isOnline ? '#4CAF50' : '#888'} style={{ marginRight: 8 }} />
+                        <Ionicons 
+                            name={isOnline ? 'ellipse' : 'ellipse-outline'} 
+                            size={16} 
+                            color={isOnline ? '#4CAF50' : '#888'} 
+                            style={styles.statusIcon} 
+                        />
                         <Text style={[styles.statusText, { color: isOnline ? '#4CAF50' : '#888' }]}>
                             {isOnline ? 'You are Online' : 'You are Offline'}
                         </Text>
@@ -341,7 +347,7 @@ const HomeScreen = () => {
                         <Ionicons
                             name={isOnline ? 'radio-button-on' : 'radio-button-off'}
                             size={24}
-                            color={isOnline ? '#174EA6' : '#888'}
+                            color={isOnline ? PRIMARY_BLUE : '#888'}
                             style={styles.toggleIcon}
                         />
                         <Text style={[styles.toggleText, !isOnline && styles.toggleTextOffline]}>
@@ -359,30 +365,6 @@ const HomeScreen = () => {
                         </View>
                     </View>
                 </View>
-                {/* Rider Info Modal */}
-                {showModal && acceptedRide && (
-                    <View style={styles.modalContainer}>
-                        {/* Drag indicator */}
-                        <View style={styles.dragIndicator} />
-                        <Text style={styles.modalTitle}>Rider Info</Text>
-                        <View style={styles.modalInfoRow}>
-                            <Ionicons name="person-circle" size={32} color="#1976D2" style={{ marginRight: 10 }} />
-                            <Text style={styles.modalInfoText}>
-                                {acceptedRide.riderName || 'Student'}
-                            </Text>
-                        </View>
-                        <View style={styles.modalInfoRow}>
-                            <Ionicons name="location" size={28} color="#4CAF50" style={{ marginRight: 10 }} />
-                            <Text style={styles.modalInfoText}>
-                                Destination: {acceptedRide.destination}
-                            </Text>
-                        </View>
-                        <View style={{ flex: 1 }} />
-                        <TouchableOpacity style={styles.closeModalBtn} onPress={() => setShowModal(false)}>
-                            <Text style={styles.closeModalBtnText}>Close</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
             </View>
 
             {/* Code Verification Modal */}
@@ -436,19 +418,17 @@ const HEADER_HEIGHT = 90;
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
-        backgroundColor: '#0A3D91',
+        backgroundColor: PRIMARY_BLUE,
     },
     container: {
         flex: 1,
         backgroundColor: '#F7F8FA',
-        justifyContent: 'flex-start',
     },
     map: {
         ...StyleSheet.absoluteFillObject,
-        zIndex: 0,
     },
     header: {
-        backgroundColor: '#0A3D91',
+        backgroundColor: PRIMARY_BLUE,
         paddingTop: Platform.OS === 'ios' ? 16 : 24,
         paddingBottom: 16,
         paddingHorizontal: 20,
@@ -459,11 +439,7 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 28,
         fontWeight: 'bold',
-        marginBottom: 4,
-    },
-    headerSubtitle: {
-        color: '#fff',
-        fontSize: 16,
+        letterSpacing: 1,
     },
     requestsOverlay: {
         position: 'absolute',
@@ -485,7 +461,7 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 8,
-        color: '#232e7a',
+        color: PRIMARY_BLUE,
     },
     requestCard: {
         backgroundColor: '#f2f6ff',
@@ -496,6 +472,37 @@ const styles = StyleSheet.create({
     requestText: {
         fontSize: 16,
         color: '#222',
+    },
+    requestButtons: {
+        flexDirection: 'row',
+        marginTop: 10,
+        gap: 10,
+    },
+    acceptButton: {
+        backgroundColor: PRIMARY_BLUE,
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 8,
+        alignItems: 'center',
+        flex: 1,
+    },
+    acceptButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    declineButton: {
+        backgroundColor: '#FF5E5E',
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 8,
+        alignItems: 'center',
+        flex: 1,
+    },
+    declineButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
     },
     bottomContainer: {
         position: 'absolute',
@@ -509,6 +516,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 10,
+    },
+    statusIcon: {
+        marginRight: 8,
     },
     statusText: {
         fontSize: 16,
@@ -539,7 +549,7 @@ const styles = StyleSheet.create({
         marginRight: 8,
     },
     toggleText: {
-        color: '#174EA6',
+        color: PRIMARY_BLUE,
         fontSize: 18,
         fontWeight: '600',
     },
@@ -566,7 +576,7 @@ const styles = StyleSheet.create({
         elevation: 1,
     },
     statValue: {
-        color: '#1976D2',
+        color: PRIMARY_BLUE,
         fontSize: 22,
         fontWeight: 'bold',
         marginBottom: 2,
@@ -574,63 +584,6 @@ const styles = StyleSheet.create({
     statLabel: {
         color: '#888',
         fontSize: 14,
-    },
-    modalContainer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: 'white',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        padding: 24,
-        shadowColor: '#000',
-        shadowOpacity: 0.2,
-        shadowOffset: { width: 0, height: -2 },
-        shadowRadius: 10,
-        elevation: 10,
-        zIndex: 10,
-        height: Math.round(SCREEN_HEIGHT * 0.65),
-        justifyContent: 'flex-start',
-    },
-    dragIndicator: {
-        width: 48,
-        height: 5,
-        borderRadius: 3,
-        backgroundColor: '#e0e0e0',
-        alignSelf: 'center',
-        marginBottom: 18,
-        marginTop: 2,
-    },
-    modalTitle: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: '#232e7a',
-        textAlign: 'center',
-        marginBottom: 24,
-    },
-    modalInfoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 18,
-    },
-    modalInfoText: {
-        fontSize: 18,
-        color: '#222',
-        fontWeight: '500',
-    },
-    closeModalBtn: {
-        backgroundColor: '#1976D2',
-        borderRadius: 10,
-        paddingVertical: 14,
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    closeModalBtnText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-        letterSpacing: 1,
     },
     loadingContainer: {
         flex: 1,
@@ -688,7 +641,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f5f5f5',
     },
     continueButton: {
-        backgroundColor: '#174EA6',
+        backgroundColor: PRIMARY_BLUE,
     },
     cancelButtonText: {
         color: '#666',

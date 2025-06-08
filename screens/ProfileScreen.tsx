@@ -430,6 +430,10 @@ const ProfileScreen = () => {
           onPress={() => setPaymentOpen((v) => !v)}
         >
           <Text style={styles.infoText}>Add your payment method here. (Coming soon)</Text>
+          <TouchableOpacity style={styles.bankButton}>
+            <Ionicons name="card-outline" size={24} color="#174EA6" />
+            <Text style={styles.bankButtonText}>Connect Bank Account</Text>
+          </TouchableOpacity>
         </Accordion>
 
         <Accordion
@@ -905,5 +909,21 @@ const styles = StyleSheet.create({
     color: '#444',
     lineHeight: 20,
     marginBottom: 12,
+  },
+  bankButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  bankButtonText: {
+    fontSize: 16,
+    color: '#174EA6',
+    marginLeft: 12,
+    fontWeight: '500',
   },
 });
