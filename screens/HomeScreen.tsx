@@ -55,10 +55,10 @@ const REFRESH_INTERVAL = 2 * 60 * 1000; // 2 minutes in milliseconds
 
 const HomeScreen = () => {
     const { user } = useAuth();
-    const [rideRequests, setRideRequests] = useState<RideRequest[]>([]);
+  const [rideRequests, setRideRequests] = useState<RideRequest[]>([]);
     const [isOnline, setIsOnline] = useState(true);
-    const [acceptedRide, setAcceptedRide] = useState<any>(null);
-    const [showModal, setShowModal] = useState(false);
+  const [acceptedRide, setAcceptedRide] = useState<any>(null);
+  const [showModal, setShowModal] = useState(false);
     const [todaysTrips, setTodaysTrips] = useState(0);
     const [todaysEarnings, setTodaysEarnings] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
@@ -76,12 +76,12 @@ const HomeScreen = () => {
     }, [rideRequests]);
 
     // Listen for ride requests when driver is online
-    useEffect(() => {
+  useEffect(() => {
         if (!isOnline || !user) {
             console.log('🚫 Not listening for rides - Driver offline or not authenticated');
-            setRideRequests([]);
-            return;
-        }
+      setRideRequests([]);
+      return;
+    }
 
         console.log('🎯 Setting up ride request listener...');
         const q = query(
@@ -108,7 +108,7 @@ const HomeScreen = () => {
                     };
                 }) as RideRequest[];
                 
-                setRideRequests(rides);
+      setRideRequests(rides);
             }, 
             (error) => {
                 console.error('❌ Error in ride request listener:', error);
@@ -300,29 +300,31 @@ const HomeScreen = () => {
             const riderData = riderSnap.data() ?? {};
 
             // Fetch driver profile
-            const dSnap = await getDoc(doc(db, 'drivers', currentUser.uid));
-            const d = dSnap.data() ?? {};
+            const driverSnap = await getDoc(doc(db, 'drivers', currentUser.uid));
+            const driverData = driverSnap.data() ?? {};
 
-            // Build update data
-            const updateData: any = {
+            // Build update data with driver information
+            const updateData = {
                 status: 'accepted',
-                driverName: `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim(),
-                driverPhone: d.phoneNumber ?? '',
-                driverGender: d.gender ?? '',
+                driverId: currentUser.uid,
+                driverName: `${driverData.firstName ?? ''} ${driverData.lastName ?? ''}`.trim() || 'Unknown',
+                driverPhone: driverData.phoneNumber || 'Unknown',
+                driverGender: driverData.gender || 'Unknown',
                 driverCar: {
-                    make: d.carMake ?? '',
-                    model: d.carModel ?? '',
-                    color: d.carColor ?? '',
-                    year: d.carYear ?? '',
+                    make: driverData.carMake || 'Unknown',
+                    model: driverData.carModel || 'Unknown',
+                    color: driverData.carColor || 'Unknown',
+                    year: driverData.carYear || 'Unknown',
                 },
-                driverPlate: d.plate ?? '',
+                driverPlate: driverData.plate || 'Unknown',
+                acceptedAt: serverTimestamp(),
             };
 
             // Log update data
             console.log('🚚 driver updating ride:', updateData);
 
             // Update ride with driver information
-            await updateDoc(rideRef, updateData, { merge: true });
+            await updateDoc(rideRef, updateData);
 
             // Navigate to ride details with updated data
             navigation.navigate('RideDetails', {
@@ -346,8 +348,19 @@ const HomeScreen = () => {
     };
 
     const handlePickedUpRider = async (rideId: string, riderCode: string) => {
+        // Find the ride request to get the riderId
+        const rideRequest = rideRequests.find(ride => ride.id === rideId);
+        if (!rideRequest) {
+            console.error('Ride request not found');
+            return;
+        }
+
         setShowCodeModal(true);
-        setSelectedRide({ id: rideId, riderCode });
+        setSelectedRide({
+            id: rideId,
+            riderId: rideRequest.riderId,
+            riderCode
+        });
     };
 
     const handleVerifyCode = async () => {
@@ -370,13 +383,13 @@ const HomeScreen = () => {
                 'Invalid code',
                 'Please ask the rider for the correct 4-digit code.'
             );
-        }
-    };
+    }
+  };
 
-    const declineRide = (rideId: string) => {
-        setRideRequests((prev) => prev.filter((ride) => ride.id !== rideId));
-        console.log('❌ Ride declined:', rideId);
-    };
+  const declineRide = (rideId: string) => {
+    setRideRequests((prev) => prev.filter((ride) => ride.id !== rideId));
+    console.log('❌ Ride declined:', rideId);
+  };
 
     const handleToggleOnline = () => {
         if (isOnline) {
@@ -400,34 +413,34 @@ const HomeScreen = () => {
         );
     }
 
-    return (
-        <SafeAreaView style={styles.safeArea}>
+  return (
+    <SafeAreaView style={styles.safeArea}>
             <StatusBar barStyle="light-content" backgroundColor={PRIMARY_BLUE} />
-            <View style={styles.container}>
-                {/* Map as background */}
-                <MapView
-                    style={styles.map}
-                    initialRegion={{
-                        latitude: 34.0007,
-                        longitude: -81.0348,
-                        latitudeDelta: 0.05,
-                        longitudeDelta: 0.05,
-                    }}
-                    showsUserLocation
-                    showsMyLocationButton
-                />
-                {/* Header */}
-                <View style={styles.header}>
+      <View style={styles.container}>
+        {/* Map as background */}
+        <MapView
+          style={styles.map}
+          initialRegion={{
+            latitude: 34.0007,
+            longitude: -81.0348,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
+          }}
+          showsUserLocation
+          showsMyLocationButton
+        />
+        {/* Header */}
+        <View style={styles.header}>
                     <Text style={styles.headerTitle}>SafeRides</Text>
-                </View>
+        </View>
                 {/* Ride Requests Overlay */}
-                {isOnline && rideRequests.length > 0 && (
-                    <View style={styles.requestsOverlay}>
-                        <Text style={styles.requestsTitle}>Incoming Ride Requests:</Text>
-                        <FlatList
-                            data={rideRequests}
-                            keyExtractor={(item) => item.id}
-                            renderItem={({ item }) => (
+        {isOnline && rideRequests.length > 0 && (
+          <View style={styles.requestsOverlay}>
+            <Text style={styles.requestsTitle}>Incoming Ride Requests:</Text>
+            <FlatList
+              data={rideRequests}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
                                 <View style={styles.requestCard}>
                                     <Text style={styles.pickupText}>
                                         Rider is at: {item.pickupAddress || 'Location not available'}
@@ -439,40 +452,40 @@ const HomeScreen = () => {
                                     )}
                                     <Text style={styles.requestText}>
                                         Going to: {item.destination || 'Destination not specified'}
-                                    </Text>
+                  </Text>
                                     <View style={styles.requestButtons}>
-                                        <TouchableOpacity
+                    <TouchableOpacity
                                             onPress={() => handleAcceptRide(item.id)}
                                             style={styles.acceptButton}
-                                        >
+                    >
                                             <Text style={styles.acceptButtonText}>Accept</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            onPress={() => declineRide(item.id)}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => declineRide(item.id)}
                                             style={styles.declineButton}
-                                        >
+                    >
                                             <Text style={styles.declineButtonText}>Decline</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-                            )}
-                        />
-                    </View>
-                )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            />
+          </View>
+        )}
                 {/* Bottom Container */}
-                <View style={styles.bottomContainer} pointerEvents="box-none">
-                    <View style={styles.statusRow}>
+        <View style={styles.bottomContainer} pointerEvents="box-none">
+          <View style={styles.statusRow}>
                         <Ionicons 
                             name={isOnline ? 'ellipse' : 'ellipse-outline'} 
                             size={16} 
                             color={isOnline ? '#4CAF50' : '#888'} 
                             style={styles.statusIcon} 
                         />
-                        <Text style={[styles.statusText, { color: isOnline ? '#4CAF50' : '#888' }]}>
-                            {isOnline ? 'You are Online' : 'You are Offline'}
-                        </Text>
-                    </View>
-                    <TouchableOpacity
+            <Text style={[styles.statusText, { color: isOnline ? '#4CAF50' : '#888' }]}>
+              {isOnline ? 'You are Online' : 'You are Offline'}
+            </Text>
+          </View>
+          <TouchableOpacity
                         style={[styles.toggleButton, !isOnline && styles.toggleButtonOffline]}
                         onPress={handleToggleOnline}
                     >
@@ -485,18 +498,18 @@ const HomeScreen = () => {
                         <Text style={[styles.toggleText, !isOnline && styles.toggleTextOffline]}>
                             {isOnline ? 'Go Offline' : 'Go Online'}
                         </Text>
-                    </TouchableOpacity>
-                    <View style={styles.statsRow}>
-                        <View style={styles.statBox}>
+          </TouchableOpacity>
+          <View style={styles.statsRow}>
+            <View style={styles.statBox}>
                             <Text style={styles.statValue}>{todaysTrips}</Text>
-                            <Text style={styles.statLabel}>Today's Trips</Text>
-                        </View>
-                        <View style={styles.statBox}>
+              <Text style={styles.statLabel}>Today's Trips</Text>
+            </View>
+            <View style={styles.statBox}>
                             <Text style={styles.statValue}>${todaysEarnings.toFixed(2)}</Text>
-                            <Text style={styles.statLabel}>Today's Earnings</Text>
-                        </View>
-                    </View>
-                </View>
+              <Text style={styles.statLabel}>Today's Earnings</Text>
+            </View>
+          </View>
+        </View>
             </View>
 
             {/* Code Verification Modal */}
@@ -511,7 +524,7 @@ const HomeScreen = () => {
                         <Text style={styles.codeModalTitle}>Enter Pickup Code</Text>
                         <Text style={styles.codeModalSubtitle}>
                             Please ask the rider for their 4-digit code
-                        </Text>
+              </Text>
                         <TextInput
                             style={styles.codeInput}
                             value={enteredCode}
@@ -536,79 +549,79 @@ const HomeScreen = () => {
                                 onPress={handleVerifyCode}
                             >
                                 <Text style={styles.continueButtonText}>Continue</Text>
-                            </TouchableOpacity>
-                        </View>
+            </TouchableOpacity>
+          </View>
                     </View>
-                </View>
+      </View>
             </Modal>
-        </SafeAreaView>
-    );
+    </SafeAreaView>
+  );
 };
 
 const HEADER_HEIGHT = 90;
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
+  safeArea: {
+    flex: 1,
         backgroundColor: PRIMARY_BLUE,
-    },
-    container: {
-        flex: 1,
-        backgroundColor: '#F7F8FA',
-    },
-    map: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    header: {
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#F7F8FA',
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  header: {
         backgroundColor: PRIMARY_BLUE,
-        paddingTop: Platform.OS === 'ios' ? 16 : 24,
-        paddingBottom: 16,
-        paddingHorizontal: 20,
-        justifyContent: 'center',
-        zIndex: 2,
-    },
-    headerTitle: {
-        color: '#fff',
-        fontSize: 28,
-        fontWeight: 'bold',
+    paddingTop: Platform.OS === 'ios' ? 16 : 24,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  headerTitle: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: 'bold',
         letterSpacing: 1,
-    },
-    requestsOverlay: {
-        position: 'absolute',
-        top: HEADER_HEIGHT + 10,
-        left: 0,
-        right: 0,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        marginHorizontal: 16,
-        borderRadius: 12,
-        padding: 12,
-        zIndex: 3,
-        shadowColor: '#000',
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 2,
-    },
-    requestsTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 8,
+  },
+  requestsOverlay: {
+    position: 'absolute',
+    top: HEADER_HEIGHT + 10,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    marginHorizontal: 16,
+    borderRadius: 12,
+    padding: 12,
+    zIndex: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  requestsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
         color: PRIMARY_BLUE,
-    },
-    requestCard: {
-        backgroundColor: '#f2f6ff',
-        borderRadius: 8,
-        padding: 10,
-        marginBottom: 8,
-    },
+  },
+  requestCard: {
+    backgroundColor: '#f2f6ff',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
     pickupText: {
         fontSize: 16,
         color: '#222',
         marginBottom: 4,
         fontWeight: '500',
     },
-    requestText: {
-        fontSize: 16,
+  requestText: {
+    fontSize: 16,
         color: '#666',
     },
     requestButtons: {
@@ -641,34 +654,34 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 16,
         fontWeight: 'bold',
-    },
-    bottomContainer: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: Platform.OS === 'ios' ? 24 : 16,
-        alignItems: 'center',
-        zIndex: 2,
-    },
-    statusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
+  },
+  bottomContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: Platform.OS === 'ios' ? 24 : 16,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
     statusIcon: {
         marginRight: 8,
     },
-    statusText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
+  statusText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
     toggleButton: {
         backgroundColor: '#fff',
-        padding: 16,
+    padding: 16,
         borderRadius: 12,
-        alignItems: 'center',
-        width: '90%',
-        marginBottom: 16,
+    alignItems: 'center',
+    width: '90%',
+    marginBottom: 16,
         flexDirection: 'row',
         justifyContent: 'center',
         shadowColor: '#000',
@@ -688,41 +701,41 @@ const styles = StyleSheet.create({
     },
     toggleText: {
         color: PRIMARY_BLUE,
-        fontSize: 18,
+    fontSize: 18,
         fontWeight: '600',
     },
     toggleTextOffline: {
         color: '#666',
-    },
-    statsRow: {
-        flexDirection: 'row',
-        width: '90%',
-        justifyContent: 'space-between',
-        marginBottom: 0,
-    },
-    statBox: {
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        flex: 1,
-        alignItems: 'center',
-        padding: 18,
-        marginHorizontal: 6,
-        shadowColor: '#000',
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-        shadowOffset: { width: 0, height: 1 },
-        elevation: 1,
-    },
-    statValue: {
+  },
+  statsRow: {
+    flexDirection: 'row',
+    width: '90%',
+    justifyContent: 'space-between',
+    marginBottom: 0,
+  },
+  statBox: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    flex: 1,
+    alignItems: 'center',
+    padding: 18,
+    marginHorizontal: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  statValue: {
         color: PRIMARY_BLUE,
-        fontSize: 22,
-        fontWeight: 'bold',
-        marginBottom: 2,
-    },
-    statLabel: {
-        color: '#888',
-        fontSize: 14,
-    },
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  statLabel: {
+    color: '#888',
+    fontSize: 14,
+  },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
@@ -735,9 +748,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     codeModalContainer: {
-        backgroundColor: 'white',
+    backgroundColor: 'white',
         borderRadius: 12,
-        padding: 24,
+    padding: 24,
         width: '90%',
         maxWidth: 400,
     },
@@ -760,12 +773,12 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         padding: 16,
         fontSize: 24,
-        textAlign: 'center',
-        marginBottom: 24,
+    textAlign: 'center',
+    marginBottom: 24,
         letterSpacing: 8,
-    },
+  },
     codeModalButtons: {
-        flexDirection: 'row',
+    flexDirection: 'row',
         justifyContent: 'space-between',
         gap: 12,
     },
@@ -773,7 +786,7 @@ const styles = StyleSheet.create({
         flex: 1,
         padding: 16,
         borderRadius: 8,
-        alignItems: 'center',
+    alignItems: 'center',
     },
     cancelButton: {
         backgroundColor: '#f5f5f5',
@@ -787,7 +800,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     continueButtonText: {
-        color: 'white',
+    color: 'white',
         fontSize: 16,
         fontWeight: '600',
     },
@@ -797,7 +810,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
         fontWeight: '500',
         fontStyle: 'italic',
-    },
-});
+  },
+}); 
 
 export default HomeScreen; 

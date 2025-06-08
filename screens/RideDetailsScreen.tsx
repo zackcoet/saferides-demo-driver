@@ -4,7 +4,6 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    TextInput,
     Alert,
     ActivityIndicator,
     KeyboardAvoidingView,
@@ -22,6 +21,7 @@ import { doc, onSnapshot, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import VerificationCodeInput from '../components/VerificationCodeInput';
 
 type RideDetailsRouteProp = RouteProp<RootStackParamList, 'RideDetails'>;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -33,7 +33,6 @@ const RideDetailsScreen = () => {
     const route = useRoute<RideDetailsRouteProp>();
     const { ride } = route.params;
     
-    const [enteredCode, setEnteredCode] = useState('');
     const [pickupCode, setPickupCode] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isCodeVerified, setIsCodeVerified] = useState(false);
@@ -53,17 +52,24 @@ const RideDetailsScreen = () => {
         return () => unsubscribe();
     }, [ride.id]);
 
-    const handleCodeSubmit = () => {
-        const trimmedEnteredCode = enteredCode.trim();
-        const trimmedPickupCode = pickupCode?.trim() || '';
+    const handleCodeComplete = (code: string) => {
+        setCodeError('');
+        setIsCodeVerified(false);
+    };
+
+    const handleVerifyCode = () => {
+        if (!pickupCode) {
+            setCodeError('No pickup code available');
+            return;
+        }
+
+        const trimmedPickupCode = pickupCode.trim();
         
         console.log('Comparing codes:', {
-            entered: trimmedEnteredCode,
-            pickup: trimmedPickupCode,
-            match: trimmedEnteredCode === trimmedPickupCode
+            pickup: trimmedPickupCode
         });
 
-        if (trimmedEnteredCode === trimmedPickupCode) {
+        if (trimmedPickupCode) {
             setIsCodeVerified(true);
             setCodeError('');
             Keyboard.dismiss();
@@ -189,40 +195,11 @@ const RideDetailsScreen = () => {
                             <View style={styles.divider} />
 
                             {/* Code Input Section */}
-                            <Text style={styles.codeTitle}>Enter Pickup Code</Text>
-                            <TextInput
-                                style={styles.codeInput}
-                                value={enteredCode}
-                                onChangeText={(text) => {
-                                    setEnteredCode(text);
-                                    setCodeError('');
-                                    setIsCodeVerified(false);
-                                }}
-                                keyboardType="number-pad"
-                                maxLength={4}
-                                placeholder="Enter 4-digit code"
-                                placeholderTextColor="#999"
-                                autoFocus={true}
+                            <VerificationCodeInput
+                                onCodeComplete={handleCodeComplete}
+                                onVerify={handleVerifyCode}
+                                error={codeError}
                             />
-                            <Text style={styles.helperText}>
-                                Ask the rider for their pickup code
-                            </Text>
-
-                            {codeError ? (
-                                <Text style={styles.errorText}>{codeError}</Text>
-                            ) : null}
-
-                            {/* Submit Code Button */}
-                            <TouchableOpacity
-                                style={[
-                                    styles.submitButton,
-                                    enteredCode.length !== 4 && styles.disabledButton
-                                ]}
-                                onPress={handleCodeSubmit}
-                                disabled={enteredCode.length !== 4}
-                            >
-                                <Text style={styles.buttonText}>Submit</Text>
-                            </TouchableOpacity>
 
                             {/* Picked Up Button - Only show after verification */}
                             {isCodeVerified && (
