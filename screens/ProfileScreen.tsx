@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Image, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Image, Alert, ActivityIndicator, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons, FontAwesome, Entypo, FontAwesome5 } from '@expo/vector-icons';
 import { useAuth } from '../services/AuthContext';
@@ -8,6 +8,7 @@ import { db } from '../config/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { Picker } from '@react-native-picker/picker';
+import FAQDropdown from '../components/FAQDropdown';
 
 const PRIMARY_BLUE = '#174EA6';
 const RED = '#D32F2F';
@@ -115,6 +116,45 @@ const ProfileScreen = () => {
   // Feedback
   const [feedback, setFeedback] = useState('');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  const faqItems = [
+    {
+      question: "How do I start driving?",
+      answer: "Download the SafeRides™ Driver app. Create an account using your .edu email and upload your student ID, driver's license, vehicle insurance, and registration. Once approved, open the app, go online, and choose the type of rides you want to accept. You'll start receiving ride requests that match your preferences."
+    },
+    {
+      question: "What kind of rides can I accept?",
+      answer: "You can choose from: Flat Rate Rides (fixed pricing determined by the app), Driver Picks Price (you set the price; riders can accept or reject), and Female Driver Only (if you identify as female, you can receive rides from female riders looking for that option). Choose the categories you're comfortable with each time you go online."
+    },
+    {
+      question: "How much do I earn per ride?",
+      answer: "Drivers keep a percentage of each ride, typically 70–85% depending on ride type. You'll see your earnings before accepting each ride. Flat rate rides provide consistent income, while 'Driver Picks Price' gives you more control."
+    },
+    {
+      question: "When do I get paid?",
+      answer: "Payouts are handled through Stripe and typically sent to your bank account every 2–3 business days. You'll be able to track your earnings and past rides directly in the app."
+    },
+    {
+      question: "Is there a limit to how far I'll need to drive?",
+      answer: "Yes — the app limits rides to around 5 miles to keep things campus-based and manageable for students. You won't be asked to drive long distances."
+    },
+    {
+      question: "Can I choose who I drive?",
+      answer: "Yes. You'll see basic info about the rider (name, gender, profile photo) before accepting. If you're not comfortable, simply decline and wait for another request. Female drivers can also choose to accept female-only rides."
+    },
+    {
+      question: "What if a rider cancels?",
+      answer: "If the rider cancels after you've already accepted and are on your way, you may receive a small cancellation fee. The app will notify you when this happens and log the cancellation in your earnings."
+    },
+    {
+      question: "Do I need to be online all the time?",
+      answer: "Nope! You control your schedule. Go online whenever you're free — before class, after practice, or on weekends. You can go offline any time if you need a break."
+    },
+    {
+      question: "What if I have an issue during a ride?",
+      answer: "We've got your back. You can report any issues directly through the app, and our support team will follow up. If it's urgent, you can use the emergency help option, and campus or local safety teams will be alerted."
+    }
+  ];
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, currentUser => {
@@ -264,6 +304,7 @@ const ProfileScreen = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#0A3AFF" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>SafeRides</Text>
       </View>
@@ -607,6 +648,15 @@ const ProfileScreen = () => {
           </ScrollView>
         </Accordion>
 
+        {/* FAQ Section */}
+        <View style={styles.faqSection}>
+          <Text style={styles.faqTitle}>Frequently Asked Questions</Text>
+          <FAQDropdown
+            title="Driver FAQs"
+            items={faqItems}
+          />
+        </View>
+
         {/* Logout */}
         <View style={styles.settingsSection}>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
@@ -925,5 +975,15 @@ const styles = StyleSheet.create({
     color: '#174EA6',
     marginLeft: 12,
     fontWeight: '500',
+  },
+  faqSection: {
+    paddingVertical: 24,
+  },
+  faqTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 16,
+    paddingHorizontal: 16,
   },
 });
